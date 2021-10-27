@@ -1,30 +1,27 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
-#define MAX_RGB_VALUE 255
-
-typedef struct {
-    char *magicNumber;
-    unsigned short width, height, maxValue;
-} Header;
 
 typedef struct {
     unsigned char r, g, b;
 } Pixel;
 
 typedef struct {
+    char *type;
+    unsigned short width, height, maxValue;
     Pixel *pixels;
-} Body;
+} PPMImage;
 
-Header parseHeader(FILE *fptr) {
+PPMImage parsePPMImage(const char *file) {
+    FILE *fptr = fopen(file, "rb");
+    if (fptr == NULL) {
+        perror("fopen");
+        exit(EXIT_FAILURE);
+    }
+
     // Parse "magic number"
     char magicNumber[3];
     if (fscanf(fptr, "%s ", magicNumber) != 1) {
         perror("magic number fscanf");
-        exit(EXIT_FAILURE);
-    } else if (strcmp(magicNumber, "P6") != 0) {
-        fprintf(stderr, "Magic number should be P6!\n");
         exit(EXIT_FAILURE);
     }
 
@@ -50,39 +47,25 @@ Header parseHeader(FILE *fptr) {
     if (fscanf(fptr, "%d ", &maxValue) != 1) {
         perror("max value fscanf");
         exit(EXIT_FAILURE);
-    } else if (maxValue != MAX_RGB_VALUE) {
-        fprintf(stderr, "Max value should be %d!\n", MAX_RGB_VALUE);
-        exit(EXIT_FAILURE);
     }
-    return (Header) {.magicNumber = magicNumber, .width=width, .height=height, .maxValue = maxValue};
+    Pixel *pixels = (Pixel *) malloc(sizeof(Pixel) * width * height);
+    fread(pixels, sizeof(Pixel), width * height, fptr);
+    fclose(fptr);
+    return (PPMImage) {.type=magicNumber, .width=width, .height=height, .maxValue=maxValue, .pixels=pixels};
 }
 
-Body parseBody(FILE *fptr, Header header) {
-    Pixel *pixels = (Pixel *) malloc(sizeof(Pixel) * header.width * header.height);
-    fread(pixels, sizeof(Pixel), header.width * header.height, fptr);
-    return (Body) {.pixels=pixels};
-}
 
 int main(int argc, const char *argv[]) {
     if (argc != (1 + 3)) {
         fprintf(stderr, "Program expects path to some .ppm image file, block number and output file!\n");
         return EXIT_FAILURE;
     }
+    const char *inFile = argv[1];
+    const unsigned short blockNumber = atoi(argv[2]);
+    const char *outFile = argv[3];
 
-    FILE *fptr = fopen(argv[1], "rb");
-    if (fptr == NULL) {
-        perror("fopen");
-        return EXIT_FAILURE;
-    }
+    PPMImage image = parsePPMImage(inFile);
 
-    // Parse header
-    Header header = parseHeader(fptr);
-
-    // Parse body
-    Body body = parseBody(fptr, header);
-
-    free(body.pixels);
-    fclose(fptr);
-
+    free(image.pixels);
     return EXIT_SUCCESS;
 }
