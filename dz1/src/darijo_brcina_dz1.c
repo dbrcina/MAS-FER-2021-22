@@ -15,6 +15,7 @@
 #define Cr_B_CONST (-0.0813)
 #define Cr_ADD_CONST 128
 
+#define DCT_BLOCK_SIZE 8
 #define TRANSLATE_CONST 128
 
 typedef struct {
@@ -36,7 +37,7 @@ typedef struct {
     PixelYCbCr *pixels;
 } PPMImageYCbCr;
 
-PPMImageRGB parsePPMImage(const char *file) {
+PPMImageRGB parsePPMImageRGB(const char *file) {
     FILE *fptr = fopen(file, "rb");
     if (fptr == NULL) {
         perror("fopen");
@@ -82,21 +83,41 @@ PPMImageRGB parsePPMImage(const char *file) {
     return (PPMImageRGB) {.type=magicNumber, .width=width, .height=height, .maxValue=maxValue, .pixels=pixels};
 }
 
-PPMImageYCbCr fromRGBToYCbCr(PPMImageRGB *imageRGB) {
-    unsigned short width = imageRGB->width;
-    unsigned short height = imageRGB->height;
-    int size = width * height;
-    PixelRGB *pixelsRGB = imageRGB->pixels;
-    PixelYCbCr *pixelsYCbCr = (PixelYCbCr *) malloc(sizeof(PixelYCbCr) * size);
-    for (int i = 0; i < size; ++i) {
-        PixelRGB pixelRGB = pixelsRGB[i];
-        float y = Y_R_CONST * pixelRGB.r + Y_G_CONST * pixelRGB.g + Y_B_CONST * pixelRGB.b;
-        float cb = Cb_R_CONST * pixelRGB.r + Cb_G_CONST * pixelRGB.g + Cb_B_CONST * pixelRGB.b + Cb_ADD_CONST;
-        float cr = Cr_R_CONST * pixelRGB.r + Cr_G_CONST * pixelRGB.g + Cr_B_CONST * pixelRGB.b + Cr_ADD_CONST;
-        pixelsYCbCr[i] = (PixelYCbCr) {.y=y, .cb=cb, .cr=cr};
-    }
-    return (PPMImageYCbCr) {.width = width, .height=height, .pixels=pixelsYCbCr};
+PixelRGB *retrieveBlock(const unsigned short blockNumber) {
+
 }
+
+//PixelYCbCr *fromRGBToYCbCr(PPMImageRGB *imageRGB, const unsigned short blockNumber) {
+//    PixelYCbCr *pixelsYCbCr = (PixelYCbCr *) malloc(sizeof(PixelYCbCr) * DCT_BLOCK_SIZE * DCT_BLOCK_SIZE);
+//    unsigned short width = imageRGB->width;
+//    unsigned short height = imageRGB->height;
+//    int size = width * height;
+//    PixelRGB *pixelsRGB = imageRGB->pixels;
+//    for (int i = 0; i < size; ++i) {
+//        PixelRGB pixelRGB = pixelsRGB[i];
+//        float y = Y_R_CONST * pixelRGB.r + Y_G_CONST * pixelRGB.g + Y_B_CONST * pixelRGB.b;
+//        float cb = Cb_R_CONST * pixelRGB.r + Cb_G_CONST * pixelRGB.g + Cb_B_CONST * pixelRGB.b + Cb_ADD_CONST;
+//        float cr = Cr_R_CONST * pixelRGB.r + Cr_G_CONST * pixelRGB.g + Cr_B_CONST * pixelRGB.b + Cr_ADD_CONST;
+//        pixelsYCbCr[i] = (PixelYCbCr) {.y=y, .cb=cb, .cr=cr};
+//    }
+//    return (PPMImageYCbCr) {.width = width, .height=height, .pixels=pixelsYCbCr};
+//}
+//
+//PPMImageYCbCr fromRGBToYCbCr(PPMImageRGB *imageRGB) {
+//    unsigned short width = imageRGB->width;
+//    unsigned short height = imageRGB->height;
+//    int size = width * height;
+//    PixelRGB *pixelsRGB = imageRGB->pixels;
+//    PixelYCbCr *pixelsYCbCr = (PixelYCbCr *) malloc(sizeof(PixelYCbCr) * size);
+//    for (int i = 0; i < size; ++i) {
+//        PixelRGB pixelRGB = pixelsRGB[i];
+//        float y = Y_R_CONST * pixelRGB.r + Y_G_CONST * pixelRGB.g + Y_B_CONST * pixelRGB.b;
+//        float cb = Cb_R_CONST * pixelRGB.r + Cb_G_CONST * pixelRGB.g + Cb_B_CONST * pixelRGB.b + Cb_ADD_CONST;
+//        float cr = Cr_R_CONST * pixelRGB.r + Cr_G_CONST * pixelRGB.g + Cr_B_CONST * pixelRGB.b + Cr_ADD_CONST;
+//        pixelsYCbCr[i] = (PixelYCbCr) {.y=y, .cb=cb, .cr=cr};
+//    }
+//    return (PPMImageYCbCr) {.width = width, .height=height, .pixels=pixelsYCbCr};
+//}
 
 void translateYCbCrImage(PPMImageYCbCr *image) {
 
@@ -111,18 +132,36 @@ int main(int argc, const char *argv[]) {
     const unsigned short blockNumber = atoi(argv[2]);
     const char *outFile = argv[3];
 
+    int *data = (int *) malloc(4 * 16);
+    int *block = (int *) malloc(4 * 4);
+
+    for (int i = 0; i < 16; ++i) {
+        data[i] = i;
+    }
+    int counter = 0;
+    int blockSize = 2;
+    int width = 4;
+    int blockN = 2;
+    int yOffset = blockNumber / blockN * blockSize * width;
+    int xOffset = blockNumber % blockN * blockSize;
+    for (int i = 0, y = yOffset; i < blockSize; ++i, y += width) {
+        for (int j = 0, x = xOffset; j < blockSize; ++j, ++x) {
+            block[counter++] = data[y + x];
+        }
+    }
+
+    printf("%d %d\n", block[0], block[1]);
+    printf("%d %d\n", block[2], block[3]);
+
+    free(data);
+    free(block);
+
     // Load image
-    PPMImageRGB imageRGB = parsePPMImage(inFile);
-    // Transform from RGB to YCbCr
-    PPMImageYCbCr imageYCbCr = fromRGBToYCbCr(&imageRGB);
-
-//    int a = imageYCbCr.width * imageYCbCr.height;
-//    printf("%.3f %.3f %.3f\n", imageYCbCr.pixels[0].y, imageYCbCr.pixels[0].cb, imageYCbCr.pixels[0].cr);
-//    printf("%.3f %.3f %.3f\n", imageYCbCr.pixels[1].y, imageYCbCr.pixels[1].cb, imageYCbCr.pixels[1].cr);
-//    printf("%.3f %.3f %.3f\n", imageYCbCr.pixels[a - 2].y, imageYCbCr.pixels[a - 2].cb, imageYCbCr.pixels[a - 2].cr);
-//    printf("%.3f %.3f %.3f\n", imageYCbCr.pixels[a - 1].y, imageYCbCr.pixels[a - 1].cb, imageYCbCr.pixels[a - 1].cr);
-
-    free(imageRGB.pixels);
-    free(imageYCbCr.pixels);
+//    PPMImageRGB imageRGB = parsePPMImageRGB(inFile);
+//    // Transform from RGB to YCbCr
+//    PPMImageYCbCr imageYCbCr = fromRGBToYCbCr(&imageRGB);
+//
+//    free(imageRGB.pixels);
+//    free(imageYCbCr.pixels);
     return EXIT_SUCCESS;
 }
