@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define BLOCK_DIM 8
+#define BLOCK_SIZE BLOCK_DIM * BLOCK_DIM
 
 #define Y_R_CONST 0.299
 #define Y_G_CONST 0.587
@@ -21,9 +22,7 @@
 
 #define SHIFT_CONST 128
 
-#define M_PI 3.14159265358979323846
-
-const float k1Table[BLOCK_DIM * BLOCK_DIM] = {
+float const k1Table[BLOCK_SIZE] = {
         16, 11, 10, 16, 24, 40, 51, 61,
         12, 12, 14, 19, 26, 58, 60, 55,
         14, 13, 16, 24, 40, 57, 69, 56,
@@ -34,7 +33,7 @@ const float k1Table[BLOCK_DIM * BLOCK_DIM] = {
         72, 92, 95, 98, 112, 100, 103, 99
 };
 
-const float k2Table[BLOCK_DIM * BLOCK_DIM] = {
+float const k2Table[BLOCK_SIZE] = {
         17, 18, 24, 47, 99, 99, 99, 99,
         18, 21, 26, 66, 99, 99, 99, 99,
         24, 26, 56, 99, 99, 99, 99, 99,
@@ -63,58 +62,72 @@ typedef struct {
     PixelRGB *pixels;
 } PPMImageRGB;
 
+void skipComments(FILE *const fptr) {
+    unsigned char c;
+    while ((c = getc(fptr)) == '#') {
+        while (getc(fptr) != '\n');
+    }
+    ungetc(c, fptr);
+}
+
 PPMImageRGB parsePPMImageRGB(const char *const file) {
     FILE *const fptr = fopen(file, "rb");
     if (fptr == NULL) {
-        perror("fopen");
+        perror("parsePPMImageRGB::fopen()");
         exit(EXIT_FAILURE);
     }
 
     // Parse "magic number"
     char magicNumber[3];
     if (fscanf(fptr, "%s ", magicNumber) != 1) {
-        perror("magic number fscanf");
+        perror("parsePPMImageRGB::magic number fscanf()");
         exit(EXIT_FAILURE);
     }
 
     // Skip all possible comments
-    unsigned char c;
-    while ((c = getc(fptr)) == '#') {
-        while (getc(fptr) != '\n');
-    }
-    ungetc(c, fptr);
+    skipComments(fptr);
 
     // Parse width and height
     uint16_t width, height;
     if (fscanf(fptr, "%hu %hu ", &width, &height) != 2) {
-        perror("width and height fscanf");
+        perror("parsePPMImageRGB::width and height fscanf()");
         exit(EXIT_FAILURE);
     }
+
+    // Skip all possible comments
+    skipComments(fptr);
 
     // Parse max RGB value
     uint16_t maxValue;
     if (fscanf(fptr, "%hu ", &maxValue) != 1) {
-        perror("max value fscanf");
+        perror("parsePPMImageRGB::max value fscanf()");
         exit(EXIT_FAILURE);
     }
 
+    // Skip all possible comments
+    skipComments(fptr);
+
     // Parse data
-    PixelRGB *const pixels = (PixelRGB *) malloc(sizeof(PixelRGB) * width * height);
-    fread(pixels, sizeof(PixelRGB), width * height, fptr);
+    uint32_t const size = width * height;
+    PixelRGB *const pixels = (PixelRGB *) malloc(sizeof(PixelRGB) * size);
+    if (fread(pixels, sizeof(PixelRGB), size, fptr) != size) {
+        perror("parsePPMImageRGB::fread()");
+        exit(EXIT_FAILURE);
+    }
 
     fclose(fptr);
     return (PPMImageRGB) {.type=magicNumber, .width=width, .height=height, .maxValue=maxValue, .pixels=pixels};
 }
 
-PixelRGB *retrieveRGBBlock(const PPMImageRGB *const imageRGB, const uint16_t blockNumber) {
+PixelRGB *retrieveRGBBlock(const PPMImageRGB *const imageRGB, uint32_t const blockNumber) {
     const PixelRGB *const pixels = imageRGB->pixels;
-    PixelRGB *const blockRGB = (PixelRGB *) malloc(sizeof(PixelRGB) * BLOCK_DIM * BLOCK_DIM);
-    const uint32_t xBlockCount = imageRGB->width / BLOCK_DIM;
-    const uint32_t yBlockCount = imageRGB->height / BLOCK_DIM;
-    const uint32_t yOffset = blockNumber / yBlockCount * BLOCK_DIM * imageRGB->width;
-    const uint32_t xOffset = blockNumber % xBlockCount * BLOCK_DIM;
-    for (uint32_t i = 0, y = yOffset, counter = 0; i < BLOCK_DIM; ++i, y += imageRGB->width) {
-        for (uint32_t j = 0, x = xOffset; j < BLOCK_DIM; ++j, ++x) {
+    PixelRGB *const blockRGB = (PixelRGB *) malloc(sizeof(PixelRGB) * BLOCK_SIZE);
+    uint32_t const xBlockCount = imageRGB->width / BLOCK_DIM;
+    uint32_t const yBlockCount = imageRGB->height / BLOCK_DIM;
+    uint32_t const yOffset = blockNumber / yBlockCount * BLOCK_DIM * imageRGB->width;
+    uint32_t const xOffset = blockNumber % xBlockCount * BLOCK_DIM;
+    for (size_t i = 0, y = yOffset, counter = 0; i < BLOCK_DIM; ++i, y += imageRGB->width) {
+        for (size_t j = 0, x = xOffset; j < BLOCK_DIM; ++j, ++x) {
             blockRGB[counter++] = pixels[y + x];
         }
     }
@@ -122,19 +135,19 @@ PixelRGB *retrieveRGBBlock(const PPMImageRGB *const imageRGB, const uint16_t blo
 }
 
 PixelYCbCr *fromRGBToYCbCr(const PixelRGB *const blockRGB) {
-    PixelYCbCr *const blockYCbCr = (PixelYCbCr *) malloc(sizeof(PixelYCbCr) * BLOCK_DIM * BLOCK_DIM);
-    for (uint32_t i = 0; i < BLOCK_DIM * BLOCK_DIM; ++i) {
-        const PixelRGB pixelRGB = blockRGB[i];
-        const float y = Y_R_CONST * pixelRGB.r + Y_G_CONST * pixelRGB.g + Y_B_CONST * pixelRGB.b;
-        const float cb = Cb_R_CONST * pixelRGB.r + Cb_G_CONST * pixelRGB.g + Cb_B_CONST * pixelRGB.b + Cb_ADD_CONST;
-        const float cr = Cr_R_CONST * pixelRGB.r + Cr_G_CONST * pixelRGB.g + Cr_B_CONST * pixelRGB.b + Cr_ADD_CONST;
+    PixelYCbCr *const blockYCbCr = (PixelYCbCr *) malloc(sizeof(PixelYCbCr) * BLOCK_SIZE);
+    for (size_t i = 0; i < BLOCK_SIZE; ++i) {
+        PixelRGB const pixelRGB = blockRGB[i];
+        float const y = Y_R_CONST * pixelRGB.r + Y_G_CONST * pixelRGB.g + Y_B_CONST * pixelRGB.b;
+        float const cb = Cb_R_CONST * pixelRGB.r + Cb_G_CONST * pixelRGB.g + Cb_B_CONST * pixelRGB.b + Cb_ADD_CONST;
+        float const cr = Cr_R_CONST * pixelRGB.r + Cr_G_CONST * pixelRGB.g + Cr_B_CONST * pixelRGB.b + Cr_ADD_CONST;
         blockYCbCr[i] = (PixelYCbCr) {.y=y, .cb=cb, .cr=cr};
     }
     return blockYCbCr;
 }
 
 void shiftBlockYCbCr(PixelYCbCr *const blockYCbCr) {
-    for (uint32_t i = 0; i < BLOCK_DIM * BLOCK_DIM; ++i) {
+    for (size_t i = 0; i < BLOCK_SIZE; ++i) {
         PixelYCbCr *const pixel = blockYCbCr + i;
         pixel->y -= SHIFT_CONST;
         pixel->cb -= SHIFT_CONST;
@@ -143,25 +156,26 @@ void shiftBlockYCbCr(PixelYCbCr *const blockYCbCr) {
 }
 
 PixelYCbCr *dctOnBlockYCbCr(PixelYCbCr *const blockYCbCr) {
-    PixelYCbCr *const dctBlock = (PixelYCbCr *) malloc(sizeof(PixelYCbCr) * BLOCK_DIM * BLOCK_DIM);
-    for (uint32_t u = 0; u < BLOCK_DIM; ++u) {
-        const float cu = u == 0 ? 1 / sqrt(2) : 1;
-        for (uint32_t v = 0; v < BLOCK_DIM; ++v) {
-            const float cv = u == 0 ? 1 / sqrt(2) : 1;
+    float const cSqrt = 1 / (float) sqrt(2);
+    PixelYCbCr *const dctBlock = (PixelYCbCr *) malloc(sizeof(PixelYCbCr) * BLOCK_SIZE);
+    for (size_t u = 0; u < BLOCK_DIM; ++u) {
+        float const cu = u == 0 ? cSqrt : 1;
+        for (size_t v = 0; v < BLOCK_DIM; ++v) {
+            float const cv = v == 0 ? cSqrt : 1;
             float tmpY = 0, tmpCb = 0, tmpCr = 0;
-            for (uint32_t i = 0; i < BLOCK_DIM; ++i) {
-                for (uint32_t j = 0; j < BLOCK_DIM; ++j) {
-                    const float cosCommon = cos((2 * i + 1) * u * M_PI / 16) * cos((2 * j + 1) * v * M_PI / 16);
-                    const PixelYCbCr block = blockYCbCr[i * BLOCK_DIM + j];
-                    tmpY += block.y * cosCommon;
-                    tmpCb += block.cb * cosCommon;
-                    tmpCr += block.cr * cosCommon;
+            for (size_t i = 0; i < BLOCK_DIM; ++i) {
+                for (size_t j = 0; j < BLOCK_DIM; ++j) {
+                    float const common = (float) (cos((2 * i + 1) * u * M_PI / 16) * cos((2 * j + 1) * v * M_PI / 16));
+                    PixelYCbCr const block = blockYCbCr[i * BLOCK_DIM + j];
+                    tmpY += block.y * common;
+                    tmpCb += block.cb * common;
+                    tmpCr += block.cr * common;
                 }
             }
             PixelYCbCr *const block = dctBlock + u * BLOCK_DIM + v;
-            block->y = 0.25 * cu * cv * tmpY;
-            block->cb = 0.25 * cu * cv * tmpCb;
-            block->cr = 0.25 * cu * cv * tmpCr;
+            block->y = 0.25f * cu * cv * tmpY;
+            block->cb = 0.25f * cu * cv * tmpCb;
+            block->cr = 0.25f * cu * cv * tmpCr;
         }
     }
     return dctBlock;
@@ -169,13 +183,13 @@ PixelYCbCr *dctOnBlockYCbCr(PixelYCbCr *const blockYCbCr) {
 
 PixelYCbCrQuantized *quantizeBlock(const PixelYCbCr *const block) {
     PixelYCbCrQuantized *const quantizedBlock = (PixelYCbCrQuantized *)
-            malloc(sizeof(PixelYCbCrQuantized) * BLOCK_DIM * BLOCK_DIM);
-    for (uint32_t i = 0; i < BLOCK_DIM * BLOCK_DIM; ++i) {
-        const PixelYCbCr pixel = block[i];
+            malloc(sizeof(PixelYCbCrQuantized) * BLOCK_SIZE);
+    for (size_t i = 0; i < BLOCK_SIZE; ++i) {
+        PixelYCbCr const pixel = block[i];
         quantizedBlock[i] = (PixelYCbCrQuantized) {
-                .y = round(pixel.y / k1Table[i]),
-                .cb = round(pixel.cb / k2Table[i]),
-                .cr = round(pixel.cr / k2Table[i])};
+                .y = (int8_t) round((double) pixel.y / (double) k1Table[i]),
+                .cb = (int8_t) round((double) pixel.cb / (double) k2Table[i]),
+                .cr = (int8_t) round((double) pixel.cr / (double) k2Table[i])};
     }
     return quantizedBlock;
 }
@@ -183,25 +197,25 @@ PixelYCbCrQuantized *quantizeBlock(const PixelYCbCr *const block) {
 void writeToFile(const PixelYCbCrQuantized *const quantizedPixels, const char *const file) {
     FILE *const fptr = fopen(file, "w");
     if (fptr == NULL) {
-        perror("fopen");
+        perror("writeToFile::fopen()");
         exit(EXIT_FAILURE);
     }
-    for (uint32_t i = 0; i < BLOCK_DIM; ++i) {
-        for (uint32_t j = 0; j < BLOCK_DIM; ++j) {
+    for (size_t i = 0; i < BLOCK_DIM; ++i) {
+        for (size_t j = 0; j < BLOCK_DIM; ++j) {
             fprintf(fptr, "%d%s", quantizedPixels[i * BLOCK_DIM + j].y, j != BLOCK_DIM - 1 ? " " : "");
         }
         fprintf(fptr, "\n");
     }
     fprintf(fptr, "\n");
-    for (uint32_t i = 0; i < BLOCK_DIM; ++i) {
-        for (uint32_t j = 0; j < BLOCK_DIM; ++j) {
+    for (size_t i = 0; i < BLOCK_DIM; ++i) {
+        for (size_t j = 0; j < BLOCK_DIM; ++j) {
             fprintf(fptr, "%d%s", quantizedPixels[i * BLOCK_DIM + j].cb, j != BLOCK_DIM - 1 ? " " : "");
         }
         fprintf(fptr, "\n");
     }
     fprintf(fptr, "\n");
-    for (uint32_t i = 0; i < BLOCK_DIM; ++i) {
-        for (uint32_t j = 0; j < BLOCK_DIM; ++j) {
+    for (size_t i = 0; i < BLOCK_DIM; ++i) {
+        for (size_t j = 0; j < BLOCK_DIM; ++j) {
             fprintf(fptr, "%d%s", quantizedPixels[i * BLOCK_DIM + j].cr, j != BLOCK_DIM - 1 ? " " : "");
         }
         fprintf(fptr, "\n");
@@ -209,17 +223,18 @@ void writeToFile(const PixelYCbCrQuantized *const quantizedPixels, const char *c
     fclose(fptr);
 }
 
-int main(int const argc, const char *const argv[]) {
+int main(int32_t const argc, const char *const argv[]) {
     if (argc != (1 + 3)) {
         fprintf(stderr, "Program expects path to some .ppm image file, block number and output file!\n");
         return EXIT_FAILURE;
     }
+
     const char *const inFile = argv[1];
-    const uint16_t blockNumber = atoi(argv[2]);
+    uint32_t const blockNumber = atoi(argv[2]);
     const char *const outFile = argv[3];
 
     // Load image
-    const PPMImageRGB imageRGB = parsePPMImageRGB(inFile);
+    PPMImageRGB const imageRGB = parsePPMImageRGB(inFile);
 
     // Retrieve RGB block
     PixelRGB *const blockRGB = retrieveRGBBlock(&imageRGB, blockNumber);
@@ -235,12 +250,14 @@ int main(int const argc, const char *const argv[]) {
     shiftBlockYCbCr(blockYCbCr);
 
     // Apply DCT
-    PixelYCbCr *dctBlock = dctOnBlockYCbCr(blockYCbCr);
+    PixelYCbCr *const dctBlock = dctOnBlockYCbCr(blockYCbCr);
     // Free not needed memory...
     free(blockYCbCr);
 
     // Apply quantization
     PixelYCbCrQuantized *const quantizedPixels = quantizeBlock(dctBlock);
+    // Free not needed memory...
+    free(dctBlock);
 
     writeToFile(quantizedPixels, outFile);
 
