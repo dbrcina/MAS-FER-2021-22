@@ -100,24 +100,17 @@ void freePGMImage(ImagePGM *img) {
     free(img->data);
 }
 
-PixelGS8 *getPGMImageBlock(ImagePGM *img, uint32_t originX, uint32_t originY) {
-    PixelGS8 *block = (PixelGS8 *) malloc(sizeof(PixelGS8) * BLOCK_SIZE);
-    uint32_t counter = 0;
+double calculateMAD2(ImagePGM *img1, uint32_t originX1, uint32_t originY1,
+                     ImagePGM *img2, uint32_t originX2, uint32_t originY2) {
+    double mad = 0.0;
     for (size_t i = 0; i < BLOCK_HEIGHT; ++i) {
-        PixelGS8 *row = img->data[originY + i];
+        PixelGS8 *img1Row = img1->data[originY1 + i];
+        PixelGS8 *img2Row = img2->data[originY2 + i];
         for (size_t j = 0; j < BLOCK_WIDTH; ++j) {
-            block[counter++] = row[originX + j];
+            mad += abs(img1Row[originX1 + j].val - img2Row[originX2 + j].val);
         }
     }
-    return block;
-}
-
-double calculateMAD(PixelGS8 *currentImgBlock, PixelGS8 *previousImgBlock) {
-    double result = 0.0;
-    for (size_t i = 0; i < BLOCK_SIZE; ++i) {
-        result += abs(currentImgBlock[i].val - previousImgBlock[i].val);
-    }
-    return result / BLOCK_SIZE;
+    return mad / BLOCK_SIZE;
 }
 
 Point findMovementVector(ImagePGM *currentImg, ImagePGM *previousImg, uint16_t blockIndex) {
@@ -130,7 +123,6 @@ Point findMovementVector(ImagePGM *currentImg, ImagePGM *previousImg, uint16_t b
     uint32_t yBlockCount = height / BLOCK_HEIGHT;
     uint32_t currentImgOriginX = blockIndex % xBlockCount * BLOCK_WIDTH;
     uint32_t currentImgOriginY = blockIndex / yBlockCount * BLOCK_HEIGHT;
-    PixelGS8 *currentImgBlock = getPGMImageBlock(currentImg, currentImgOriginX, currentImgOriginY);
 
     int32_t previousImgOriginY = (int32_t) (currentImgOriginY - BLOCK_HEIGHT);
     int32_t previousImgEndY = (int32_t) (currentImgOriginY + BLOCK_HEIGHT);
@@ -144,19 +136,17 @@ Point findMovementVector(ImagePGM *currentImg, ImagePGM *previousImg, uint16_t b
         for (int32_t originX = previousImgOriginX; originX <= previousImgEndX; ++originX) {
             if (originX < 0) continue;
             if (originX + BLOCK_WIDTH - 1 >= width) break;
-            PixelGS8 *previousImgBlock = getPGMImageBlock(previousImg, originX, originY);
-            double currentMAD = calculateMAD(currentImgBlock, previousImgBlock);
-            free(previousImgBlock);
+            double currentMAD = calculateMAD2(currentImg, currentImgOriginX, currentImgOriginY,
+                                              previousImg, originX, originY);
             if (currentMAD < minMAD) {
                 minMAD = currentMAD;
-                vector.x = originX - currentImgOriginX;
-                vector.y = originY - currentImgOriginY;
+                vector.x = originX - (int32_t) currentImgOriginX;
+                vector.y = originY - (int32_t) currentImgOriginY;
                 vector.mad = minMAD;
             }
         }
     }
 
-    free(currentImgBlock);
     return vector;
 }
 
