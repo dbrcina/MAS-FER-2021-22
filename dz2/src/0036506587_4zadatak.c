@@ -81,8 +81,12 @@ ImagePGM readPGMImage(const char *pgmFile) {
 
     PixelGS8 **matrixData = (PixelGS8 **) malloc(sizeof(PixelGS8 *) * height);
     for (size_t i = 0; i < height; ++i) {
-        matrixData[i] = linearData + i * width;
+        matrixData[i] = (PixelGS8 *) malloc(sizeof(PixelGS8) * width);
+        for (size_t j = 0; j < width; ++j) {
+            matrixData[i][j] = linearData[i * width + j];
+        }
     }
+    free(linearData);
 
     ImagePGM image = {.width=width, .height=height, .maxVal=maxVal, .data=matrixData};
     strcpy(image.type, magicNumber);
@@ -128,10 +132,10 @@ Point findMovementVector(ImagePGM *currentImg, ImagePGM *previousImg, uint16_t b
     uint32_t currentImgOriginY = blockIndex / yBlockCount * BLOCK_HEIGHT;
     PixelGS8 *currentImgBlock = getPGMImageBlock(currentImg, currentImgOriginX, currentImgOriginY);
 
-    int32_t previousImgOriginY = (int32_t)(currentImgOriginY - BLOCK_HEIGHT);
-    int32_t previousImgEndY = (int32_t)(currentImgOriginY + BLOCK_HEIGHT);
-    int32_t previousImgOriginX = (int32_t)(currentImgOriginX - BLOCK_WIDTH);
-    int32_t previousImgEndX = (int32_t)(currentImgOriginX + BLOCK_WIDTH);
+    int32_t previousImgOriginY = (int32_t) (currentImgOriginY - BLOCK_HEIGHT);
+    int32_t previousImgEndY = (int32_t) (currentImgOriginY + BLOCK_HEIGHT);
+    int32_t previousImgOriginX = (int32_t) (currentImgOriginX - BLOCK_WIDTH);
+    int32_t previousImgEndX = (int32_t) (currentImgOriginX + BLOCK_WIDTH);
 
     double minMAD = DBL_MAX;
     for (int32_t originY = previousImgOriginY; originY <= previousImgEndY; ++originY) {
