@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
         ++groups[(image.data[i].val >> 4) % N_GROUPS];
     }
     for (size_t i = 0; i < N_GROUPS; ++i) {
-        fprintf(stdout, "%d %f\n", i, (double) groups[i] / size);
+        fprintf(stdout, "%ld %f\n", i, (double) groups[i] / size);
     }
     free(image.data);
     return EXIT_SUCCESS;
