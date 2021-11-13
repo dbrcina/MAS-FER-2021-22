@@ -2,10 +2,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <float.h>
 
-#define BLOCK_WIDTH 2
-#define BLOCK_HEIGHT 2
-#define BLOCK_SIZE BLOCK_WIDTH * BLOCK_HEIGHT
+#define BLOCK_WIDTH 16
+#define BLOCK_HEIGHT 16
+#define BLOCK_SIZE (BLOCK_WIDTH * BLOCK_HEIGHT)
 
 typedef struct {
     uint8_t val;
@@ -14,8 +15,14 @@ typedef struct {
 typedef struct {
     char type[3];
     uint16_t width, height, maxVal;
-    PixelGS8 *data;
+    PixelGS8 **data;
 } ImagePGM;
+
+typedef struct {
+    int32_t x;
+    int32_t y;
+    double mad;
+} Point;
 
 void skipComments(FILE *file) {
     unsigned char c;
@@ -65,40 +72,92 @@ ImagePGM readPGMImage(const char *pgmFile) {
     }
 
     uint32_t size = width * height;
-    PixelGS8 *data = (PixelGS8 *) malloc(sizeof(PixelGS8) * size);
-    if (fread(data, sizeof(PixelGS8), size, file) != size) {
+    PixelGS8 *linearData = (PixelGS8 *) malloc(sizeof(PixelGS8) * size);
+    if (fread(linearData, sizeof(PixelGS8), size, file) != size) {
         fprintf(stderr, "readPGMImage()::fscanf() - Parsing data failed!\n");
         exit(EXIT_FAILURE);
     }
-
     fclose(file);
 
-    ImagePGM image = {.width=width, .height=height, .maxVal=maxVal, .data=data};
+    PixelGS8 **matrixData = (PixelGS8 **) malloc(sizeof(PixelGS8 *) * height);
+    for (size_t i = 0; i < height; ++i) {
+        matrixData[i] = linearData + i * width;
+    }
+
+    ImagePGM image = {.width=width, .height=height, .maxVal=maxVal, .data=matrixData};
     strcpy(image.type, magicNumber);
     return image;
 }
 
-PixelGS8 *getPGMImageBlock(ImagePGM *img, uint16_t blockIndex) {
+void freePGMImage(ImagePGM *img) {
+    for (size_t i = 0; i < img->height; ++i) {
+        free(img->data[i]);
+    }
+    free(img->data);
+}
+
+PixelGS8 *getPGMImageBlock(ImagePGM *img, uint32_t originX, uint32_t originY) {
     PixelGS8 *block = (PixelGS8 *) malloc(sizeof(PixelGS8) * BLOCK_SIZE);
-    uint32_t xBlockCount = img->width / BLOCK_WIDTH;
-    uint32_t yBlockCount = img->height / BLOCK_HEIGHT;
-    uint32_t x = blockIndex % xBlockCount * BLOCK_WIDTH;
-    uint32_t y = blockIndex / yBlockCount * BLOCK_HEIGHT * img->width;
-    uint32_t yOffset = y;
     uint32_t counter = 0;
     for (size_t i = 0; i < BLOCK_HEIGHT; ++i) {
-        uint32_t xOffset = x;
+        PixelGS8 *row = img->data[originY + i];
         for (size_t j = 0; j < BLOCK_WIDTH; ++j) {
-            block[counter++] = img->data[yOffset + xOffset];
-            ++xOffset;
+            block[counter++] = row[originX + j];
         }
-        yOffset += img->width;
     }
     return block;
 }
 
+double calculateMAD(PixelGS8 *currentImgBlock, PixelGS8 *previousImgBlock) {
+    double result = 0.0;
+    for (size_t i = 0; i < BLOCK_SIZE; ++i) {
+        result += abs(currentImgBlock[i].val - previousImgBlock[i].val);
+    }
+    return result / BLOCK_SIZE;
+}
+
+Point findMovementVector(ImagePGM *currentImg, ImagePGM *previousImg, uint16_t blockIndex) {
+    Point vector;
+
+    uint16_t width = currentImg->width;
+    uint16_t height = currentImg->height;
+
+    uint32_t xBlockCount = width / BLOCK_WIDTH;
+    uint32_t yBlockCount = height / BLOCK_HEIGHT;
+    uint32_t currentImgOriginX = blockIndex % xBlockCount * BLOCK_WIDTH;
+    uint32_t currentImgOriginY = blockIndex / yBlockCount * BLOCK_HEIGHT;
+    PixelGS8 *currentImgBlock = getPGMImageBlock(currentImg, currentImgOriginX, currentImgOriginY);
+
+    int32_t previousImgOriginY = (int32_t)(currentImgOriginY - BLOCK_HEIGHT);
+    int32_t previousImgEndY = (int32_t)(currentImgOriginY + BLOCK_HEIGHT);
+    int32_t previousImgOriginX = (int32_t)(currentImgOriginX - BLOCK_WIDTH);
+    int32_t previousImgEndX = (int32_t)(currentImgOriginX + BLOCK_WIDTH);
+
+    double minMAD = DBL_MAX;
+    for (int32_t originY = previousImgOriginY; originY <= previousImgEndY; ++originY) {
+        if (originY < 0) continue;
+        if (originY + BLOCK_HEIGHT - 1 >= height) break;
+        for (int32_t originX = previousImgOriginX; originX <= previousImgEndX; ++originX) {
+            if (originX < 0) continue;
+            if (originX + BLOCK_WIDTH - 1 >= width) break;
+            PixelGS8 *previousImgBlock = getPGMImageBlock(previousImg, originX, originY);
+            double currentMAD = calculateMAD(currentImgBlock, previousImgBlock);
+            free(previousImgBlock);
+            if (currentMAD < minMAD) {
+                minMAD = currentMAD;
+                vector.x = originX - currentImgOriginX;
+                vector.y = originY - currentImgOriginY;
+                vector.mad = minMAD;
+            }
+        }
+    }
+
+    free(currentImgBlock);
+    return vector;
+}
+
 int main(int argc, char *argv[]) {
-    uint16_t blockNumber = atoi(argv[1]);
+    uint16_t blockIndex = atoi(argv[1]);
     ImagePGM currentImg;
     ImagePGM previousImg;
     if (argc < 3) {
@@ -109,7 +168,10 @@ int main(int argc, char *argv[]) {
         previousImg = readPGMImage(argv[3]);
     }
 
-    free(currentImg.data);
-    free(previousImg.data);
+    Point vector = findMovementVector(&currentImg, &previousImg, blockIndex);
+    fprintf(stdout, "%d,%d\n", vector.x, vector.y);
+
+    freePGMImage(&currentImg);
+    freePGMImage(&previousImg);
     return EXIT_SUCCESS;
 }
