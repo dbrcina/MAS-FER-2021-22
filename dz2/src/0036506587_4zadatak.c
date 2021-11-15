@@ -101,7 +101,7 @@ void freePGMImage(ImagePGM *img) {
 }
 
 double calculateMAD(ImagePGM *img1, uint32_t originX1, uint32_t originY1,
-                     ImagePGM *img2, uint32_t originX2, uint32_t originY2) {
+                    ImagePGM *img2, uint32_t originX2, uint32_t originY2) {
     double mad = 0.0;
     for (size_t i = 0; i < BLOCK_HEIGHT; ++i) {
         PixelGS8 *img1Row = img1->data[originY1 + i];
@@ -137,7 +137,7 @@ Point findMovementVector(ImagePGM *currentImg, ImagePGM *previousImg, uint16_t b
             if (originX < 0) continue;
             if (originX + BLOCK_WIDTH - 1 >= width) break;
             double currentMAD = calculateMAD(currentImg, currentImgOriginX, currentImgOriginY,
-                                              previousImg, originX, originY);
+                                             previousImg, originX, originY);
             if (currentMAD < minMAD) {
                 minMAD = currentMAD;
                 vector.x = originX - (int32_t) currentImgOriginX;
