@@ -1,0 +1,6 @@
+1. cos             50.5
+2. dctOnBlockYCbCr 41.6
+3. round            2.3
+4. fromRGBToYCbCr   2.2
+5. malloc           2.2
+Vrijeme izvodjenja: 1.409000 s.
